@@ -8,7 +8,7 @@
   from pydantic import BaseModel
   import httpx
 
-  app = FastAPI(title="FFmpeg Video Combiner API")
+  app = FastAPI(title="FFmpeg Video Combiner API v2")
 
   app.add_middleware(
       CORSMiddleware,
