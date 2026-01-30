@@ -93,24 +93,47 @@ def get_ffmpeg_version() -> str:
 
 def get_font_file(font_type: str) -> str:
     """フォントタイプに応じたフォントファイルを返す"""
+    # Noto Sans CJK JP フォントマッピング
     font_map = {
-        "regular": "NotoSansCJK-Regular.ttc",
-        "bold": "NotoSansCJK-Bold.ttc",
-        "extra-bold": "NotoSansCJK-Black.ttc",
+        "regular": ["NotoSansCJK-Regular.ttc", "NotoSansCJKjp-Regular.otf"],
+        "bold": ["NotoSansCJK-Bold.ttc", "NotoSansCJKjp-Bold.otf"],
+        "extra-bold": ["NotoSansCJK-Black.ttc", "NotoSansCJKjp-Black.otf"],
     }
-    font_file = font_map.get(font_type, "NotoSansCJK-Regular.ttc")
+    font_files = font_map.get(font_type, font_map["regular"])
 
     # 複数のパスを試す
-    possible_paths = [
-        f"/usr/share/fonts/opentype/noto/{font_file}",
-        f"/usr/share/fonts/truetype/noto/{font_file}",
-        f"/usr/share/fonts/noto-cjk/{font_file}",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # fallback
+    base_paths = [
+        "/usr/share/fonts/opentype/noto",
+        "/usr/share/fonts/truetype/noto",
+        "/usr/share/fonts/noto-cjk",
+        "/usr/share/fonts/opentype/noto-cjk",
     ]
 
-    for path in possible_paths:
-        if os.path.exists(path):
-            return path
+    for base_path in base_paths:
+        for font_file in font_files:
+            full_path = f"{base_path}/{font_file}"
+            if os.path.exists(full_path):
+                print(f"Found font: {full_path}")
+                return full_path
+
+    # フォールバック: fc-matchで検索
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["fc-match", "-f", "%{file}", "Noto Sans CJK JP"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            font_path = result.stdout.strip()
+            print(f"Found font via fc-match: {font_path}")
+            return font_path
+    except Exception as e:
+        print(f"fc-match failed: {e}")
+
+    # 最終フォールバック
+    fallback = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    if os.path.exists(fallback):
+        return fallback
 
     return "DejaVuSans"  # FFmpeg default
 

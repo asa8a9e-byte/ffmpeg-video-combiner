@@ -1,9 +1,13 @@
 # FFmpeg + Python FastAPI
 FROM python:3.11-slim
 
-# FFmpegをインストール
+# FFmpegと日本語フォントをインストール
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    fonts-noto-cjk \
+    fonts-noto-cjk-extra \
+    fontconfig \
+    && fc-cache -fv \
     && rm -rf /var/lib/apt/lists/*
 
 # 作業ディレクトリ
