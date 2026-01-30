@@ -312,56 +312,103 @@ def combine_video_audio_captions(
         probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
         has_audio = bool(probe_result.stdout.strip())
 
-        # テロップフィルタを構築
-        drawtext_filter = build_drawtext_filter(captions, styles)
+        # テロップフィルタを構築（空の場合はnullフィルタを使用）
+        drawtext_filter = build_drawtext_filter(captions, styles) if captions else ""
+        has_captions = bool(drawtext_filter)
 
         if audio_path and os.path.exists(audio_path):
             # BGMがある場合
             if has_audio:
                 # 元音声 + BGM + テロップ
-                filter_complex = (
-                    f"[0:v]{drawtext_filter}[vout];"
-                    f"[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=1.0[voice];"
-                    f"[1:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=0.25[bgm];"
-                    f"[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
-                )
+                if has_captions:
+                    filter_complex = (
+                        f"[0:v]{drawtext_filter}[vout];"
+                        f"[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=1.0[voice];"
+                        f"[1:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=0.25[bgm];"
+                        f"[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+                    )
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-i", video_path,
+                        "-i", audio_path,
+                        "-filter_complex", filter_complex,
+                        "-map", "[vout]",
+                        "-map", "[aout]",
+                        "-c:v", "libx264",
+                        "-c:a", "aac",
+                        "-b:a", "192k",
+                        "-shortest",
+                        output_path
+                    ]
+                else:
+                    # テロップなし、音声ミックスのみ
+                    filter_complex = (
+                        f"[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=1.0[voice];"
+                        f"[1:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=0.25[bgm];"
+                        f"[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+                    )
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-i", video_path,
+                        "-i", audio_path,
+                        "-filter_complex", filter_complex,
+                        "-map", "0:v",
+                        "-map", "[aout]",
+                        "-c:v", "copy",
+                        "-c:a", "aac",
+                        "-b:a", "192k",
+                        "-shortest",
+                        output_path
+                    ]
+            else:
+                # BGMのみ + テロップ
+                if has_captions:
+                    filter_complex = f"[0:v]{drawtext_filter}[vout]"
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-i", video_path,
+                        "-i", audio_path,
+                        "-filter_complex", filter_complex,
+                        "-map", "[vout]",
+                        "-map", "1:a",
+                        "-c:v", "libx264",
+                        "-c:a", "aac",
+                        "-shortest",
+                        output_path
+                    ]
+                else:
+                    # テロップなし、BGMのみ
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-i", video_path,
+                        "-i", audio_path,
+                        "-map", "0:v",
+                        "-map", "1:a",
+                        "-c:v", "copy",
+                        "-c:a", "aac",
+                        "-shortest",
+                        output_path
+                    ]
+        else:
+            # BGMなし
+            if has_captions:
+                # テロップのみ
                 cmd = [
                     "ffmpeg", "-y",
                     "-i", video_path,
-                    "-i", audio_path,
-                    "-filter_complex", filter_complex,
-                    "-map", "[vout]",
-                    "-map", "[aout]",
-                    "-c:v", "libx264",
-                    "-c:a", "aac",
-                    "-b:a", "192k",
-                    "-shortest",
+                    "-vf", drawtext_filter,
+                    "-c:a", "copy",
                     output_path
                 ]
             else:
-                # BGMのみ + テロップ
-                filter_complex = f"[0:v]{drawtext_filter}[vout]"
+                # 何もなし（コピー）
                 cmd = [
                     "ffmpeg", "-y",
                     "-i", video_path,
-                    "-i", audio_path,
-                    "-filter_complex", filter_complex,
-                    "-map", "[vout]",
-                    "-map", "1:a",
-                    "-c:v", "libx264",
-                    "-c:a", "aac",
-                    "-shortest",
+                    "-c:v", "copy",
+                    "-c:a", "copy",
                     output_path
                 ]
-        else:
-            # BGMなし、テロップのみ
-            cmd = [
-                "ffmpeg", "-y",
-                "-i", video_path,
-                "-vf", drawtext_filter,
-                "-c:a", "copy",
-                output_path
-            ]
 
         print(f"Running FFmpeg full command: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -410,13 +457,22 @@ async def combine_with_captions(request: CombineWithCaptionsRequest, background_
     audio_path = os.path.join(TEMP_DIR, f"{job_id}_audio.mp3") if request.audio_url else None
     output_path = os.path.join(OUTPUT_DIR, f"{job_id}_output.{request.output_format}")
 
+    print(f"=== combine-with-captions request ===")
+    print(f"video_url: {request.video_url}")
+    print(f"audio_url: {request.audio_url}")
+    print(f"captions count: {len(request.captions) if request.captions else 0}")
+    for i, cap in enumerate(request.captions or []):
+        print(f"  caption[{i}]: text='{cap.text[:30]}...' start={cap.start_time} end={cap.end_time} pos={cap.position}")
+
     try:
         if not await download_file(request.video_url, video_path):
             raise HTTPException(status_code=400, detail="Failed to download video")
+        print(f"Video downloaded: {os.path.exists(video_path)}, size: {os.path.getsize(video_path) if os.path.exists(video_path) else 0}")
 
         if request.audio_url and audio_path:
             if not await download_file(request.audio_url, audio_path):
                 raise HTTPException(status_code=400, detail="Failed to download audio")
+            print(f"Audio downloaded: {os.path.exists(audio_path)}, size: {os.path.getsize(audio_path) if os.path.exists(audio_path) else 0}")
 
         if not combine_video_audio_captions(
             video_path,
