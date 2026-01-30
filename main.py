@@ -38,10 +38,10 @@ class ImageToVideoRequest(BaseModel):
 
 class CaptionStyle(BaseModel):
     font: str = "regular"  # regular, bold, extra-bold
-    size: int = 48
+    size: int = 24
     color: str = "white"
     outline_color: str = "black"
-    outline_width: int = 3
+    outline_width: int = 2
     shadow: bool = True
 
 class Caption(BaseModel):
@@ -53,9 +53,9 @@ class Caption(BaseModel):
 
 class CaptionStyles(BaseModel):
     default: CaptionStyle = CaptionStyle()
-    emphasis: CaptionStyle = CaptionStyle(font="bold", size=52, color="yellow")
-    impact: CaptionStyle = CaptionStyle(font="extra-bold", size=64, color="red", outline_color="white")
-    gentle: CaptionStyle = CaptionStyle(font="regular", size=44, color="white")
+    emphasis: CaptionStyle = CaptionStyle(font="bold", size=28, color="yellow")
+    impact: CaptionStyle = CaptionStyle(font="extra-bold", size=32, color="red", outline_color="white")
+    gentle: CaptionStyle = CaptionStyle(font="regular", size=22, color="white")
 
 class CombineWithCaptionsRequest(BaseModel):
     video_url: str
