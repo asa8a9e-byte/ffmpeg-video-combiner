@@ -74,36 +74,40 @@ def get_ffmpeg_version() -> str:
 
 
 def combine_video_audio(video_path: str, audio_path: str, output_path: str) -> bool:
-    """動画と音声を合成"""
+    """動画と音声を合成（元の音声を保持してBGMをミックス）"""
     try:
-        # FFmpegコマンド: 動画に音声を追加（既存の音声を置き換え）
-        cmd = [
-            "ffmpeg",
-            "-y",  # 上書き許可
-            "-i", video_path,  # 入力動画
-            "-i", audio_path,  # 入力音声（BGM）
-            "-filter_complex",
-            # 元の動画の音声とBGMをミックス（BGMは音量を下げる）
-            "[0:a]volume=1.0[a0];[1:a]volume=0.3[a1];[a0][a1]amix=inputs=2:duration=first[aout]",
-            "-map", "0:v",  # 動画は元のまま
-            "-map", "[aout]",  # 音声はミックスしたもの
-            "-c:v", "copy",  # 動画はコピー（再エンコードなし）
-            "-c:a", "aac",  # 音声はAAC
-            "-shortest",  # 短い方に合わせる
-            output_path
+        # まず動画に音声トラックがあるか確認
+        probe_cmd = [
+            "ffprobe", "-v", "error", "-select_streams", "a",
+            "-show_entries", "stream=index", "-of", "csv=p=0", video_path
         ]
+        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        has_audio = bool(probe_result.stdout.strip())
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=300  # 5分タイムアウト
-        )
+        print(f"Video has audio track: {has_audio}")
 
-        if result.returncode != 0:
-            print(f"FFmpeg error: {result.stderr}")
-            # 音声トラックがない場合のフォールバック
-            cmd_fallback = [
+        if has_audio:
+            # 元の動画に音声がある場合: ミックス
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-i", video_path,
+                "-i", audio_path,
+                "-filter_complex",
+                "[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=1.0[voice];"
+                "[1:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=0.25[bgm];"
+                "[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+                "-map", "0:v",
+                "-map", "[aout]",
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-shortest",
+                output_path
+            ]
+        else:
+            # 音声トラックがない場合: BGMのみ追加
+            cmd = [
                 "ffmpeg",
                 "-y",
                 "-i", video_path,
@@ -115,14 +119,20 @@ def combine_video_audio(video_path: str, audio_path: str, output_path: str) -> b
                 "-shortest",
                 output_path
             ]
-            result = subprocess.run(
-                cmd_fallback,
-                capture_output=True,
-                text=True,
-                timeout=300
-            )
 
-        return result.returncode == 0
+        print(f"Running FFmpeg command: {' '.join(cmd)}")
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+
+        if result.returncode != 0:
+            print(f"FFmpeg error: {result.stderr}")
+            return False
+
+        return True
     except subprocess.TimeoutExpired:
         print("FFmpeg timeout")
         return False
