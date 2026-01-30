@@ -178,8 +178,16 @@ def build_drawtext_filter(captions: list[Caption], styles: CaptionStyles) -> str
         if style.shadow:
             shadow_settings = ":shadowcolor=black@0.5:shadowx=2:shadowy=2"
 
+        # フォントファイルが存在する場合のみ指定
+        if font_file and os.path.exists(font_file):
+            font_setting = f"fontfile='{font_file}'"
+        else:
+            # フォントがない場合はfontを使用
+            font_setting = "font='sans-serif'"
+            print(f"Font file not found, using default: {font_file}")
+
         filter_str = (
-            f"drawtext=fontfile='{font_file}'"
+            f"drawtext={font_setting}"
             f":text='{escaped_text}'"
             f":fontsize={style.size}"
             f":fontcolor={style.color}"
