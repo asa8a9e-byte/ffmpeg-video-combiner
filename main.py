@@ -340,9 +340,18 @@ def combine_video_voice_bgm_captions(
             filter_parts.append(f"[0:v]{drawtext_filter}[vout]")
             video_out = "[vout]"
 
+        # 動画に音声トラックがあるか確認
+        probe_cmd = [
+            "ffprobe", "-v", "error", "-select_streams", "a",
+            "-show_entries", "stream=index", "-of", "csv=p=0", video_path
+        ]
+        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        video_has_audio = bool(probe_result.stdout.strip())
+        print(f"Video has audio track: {video_has_audio}")
+
         # 音声フィルタ
         if has_voice and has_bgm:
-            # 音声 + BGM をミックス
+            # 外部音声ファイル + BGM をミックス
             filter_parts.append(
                 f"[{voice_idx}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=1.0[voice];"
                 f"[{bgm_idx}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=0.25[bgm];"
@@ -350,8 +359,19 @@ def combine_video_voice_bgm_captions(
             )
             audio_out = "[aout]"
         elif has_voice:
-            # 音声のみ
+            # 外部音声ファイルのみ
             audio_out = f"{voice_idx}:a"
+        elif video_has_audio and has_bgm:
+            # 動画の元音声 + BGM をミックス
+            filter_parts.append(
+                f"[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=1.0[origaudio];"
+                f"[{bgm_idx}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=0.25[bgm];"
+                f"[origaudio][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+            )
+            audio_out = "[aout]"
+        elif video_has_audio:
+            # 動画の元音声のみ
+            audio_out = "0:a"
         elif has_bgm:
             # BGMのみ
             audio_out = f"{bgm_idx}:a"
