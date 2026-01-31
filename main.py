@@ -38,11 +38,12 @@ class ImageToVideoRequest(BaseModel):
 
 class CaptionStyle(BaseModel):
     font: str = "regular"  # regular, bold, extra-bold
-    size: int = 24
+    size: int = 18  # smaller for mobile-friendly
     color: str = "white"
     outline_color: str = "black"
     outline_width: int = 2
     shadow: bool = True
+    max_width: int = 80  # percentage of video width
 
 class Caption(BaseModel):
     text: str
@@ -187,19 +188,29 @@ def build_drawtext_filter(captions: list[Caption], styles: CaptionStyles) -> str
             font_setting = "font='sans-serif'"
             print(f"Font file not found, using default: {font_file}")
 
-        filter_str = (
-            f"drawtext={font_setting}"
-            f":text='{escaped_text}'"
-            f":fontsize={style.size}"
-            f":fontcolor={style.color}"
-            f":borderw={style.outline_width}"
-            f":bordercolor={style.outline_color}"
-            f":x=(w-text_w)/2"
-            f":y={y_pos}"
-            f":enable='between(t,{caption.start_time},{caption.end_time})'"
-            f"{shadow_settings}"
-        )
-        filters.append(filter_str)
+        # テキストを複数行に分割（20文字ごと）
+        max_chars = 20
+        lines = [escaped_text[i:i+max_chars] for i in range(0, len(escaped_text), max_chars)]
+
+        for line_idx, line_text in enumerate(lines):
+            line_offset = (len(lines) - 1 - line_idx) * 30  # 行間30px
+            if line_offset > 0:
+                line_y_expr = f"({y_pos})-{line_offset}"
+            else:
+                line_y_expr = y_pos
+            filter_str = (
+                f"drawtext={font_setting}"
+                f":text='{line_text}'"
+                f":fontsize={style.size}"
+                f":fontcolor={style.color}"
+                f":borderw={style.outline_width}"
+                f":bordercolor={style.outline_color}"
+                f":x=(w-text_w)/2"
+                f":y={line_y_expr}"
+                f":enable='between(t,{caption.start_time},{caption.end_time})'"
+                f"{shadow_settings}"
+            )
+            filters.append(filter_str)
 
     return ",".join(filters)
 
@@ -233,7 +244,7 @@ def combine_video_audio(video_path: str, audio_path: str, output_path: str) -> b
                 "-i", audio_path,
                 "-filter_complex",
                 "[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=1.0[voice];"
-                "[1:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=0.25[bgm];"
+                "[1:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=0.10[bgm];"
                 "[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]",
                 "-map", "0:v",
                 "-map", "[aout]",
@@ -354,7 +365,7 @@ def combine_video_voice_bgm_captions(
             # 外部音声ファイル + BGM をミックス
             filter_parts.append(
                 f"[{voice_idx}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=1.0[voice];"
-                f"[{bgm_idx}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=0.25[bgm];"
+                f"[{bgm_idx}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=0.10[bgm];"
                 f"[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
             )
             audio_out = "[aout]"
@@ -365,7 +376,7 @@ def combine_video_voice_bgm_captions(
             # 動画の元音声 + BGM をミックス
             filter_parts.append(
                 f"[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=1.0[origaudio];"
-                f"[{bgm_idx}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=0.25[bgm];"
+                f"[{bgm_idx}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=0.10[bgm];"
                 f"[origaudio][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
             )
             audio_out = "[aout]"
